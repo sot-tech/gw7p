@@ -49,9 +49,9 @@ func main() {
 	}
 	var dll []byte
 	if data[0x84] != 0x4c || data[0x85] != 0x01 { // x86
-		dll = dllData64
-	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
 		dll = dllData32
+	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
+		dll = dllData64
 	} else {
 		fmt.Println("unsupported windows PE machine type, got:")
 		fmt.Printf("0x84 - 0x%X, but 0x64/0x4C required\n", data[0x84])
