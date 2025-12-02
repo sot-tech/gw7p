@@ -22,10 +22,10 @@ var (
 )
 
 //go:embed "acryptprimitives32.dll"
-var dllData64 []byte
+var dllData32 []byte
 
 //go:embed "acryptprimitives64.dll"
-var dllData32 []byte
+var dllData64 []byte
 
 func main() {
 	flag.Parse()
