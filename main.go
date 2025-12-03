@@ -11,11 +11,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"golang.org/x/text/encoding/unicode"
 )
 
-// values shifted to 1 ascii symbol to avoid incorrect patching self executable
+// values shifted to 1 ascii symbol forward to avoid incorrect patching self executable
 var (
 	oldDLL = []byte("cdszquqsjnjujwft/emm") // bcryptprimitives.dll
 	newDLL = []byte("bdszquqsjnjujwft/emm") // acryptprimitives.dll
@@ -42,34 +40,41 @@ func main() {
 	if len(data) < 0x90 ||
 		data[0] != 0x4D || data[1] != 0x5A || // exe magic
 		data[0x80] != 0x50 || data[0x81] != 0x45 { // PE format
-		fmt.Println("file not seems to be windows x64 executable, got:")
-		fmt.Printf("0x80 - 0x%X, but 0x50 required\n", data[0x80])
-		fmt.Printf("0x81 - 0x%X, but 0x45 required\n", data[0x81])
+		fmt.Printf(`file not seems to be windows executable, got:
+	0x80 - 0x%X, but 0x50 required
+	0x81 - 0x%X, but 0x45 required
+`, data[0x80], data[0x81])
 		os.Exit(1)
 	}
 	var dll []byte
-	if data[0x84] != 0x4c || data[0x85] != 0x01 { // x86
+	if data[0x84] == 0x4c && data[0x85] == 0x01 { // x86
+		fmt.Println("x86 executable")
 		dll = dllData32
 	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
+		fmt.Println("x64 executable")
 		dll = dllData64
 	} else {
-		fmt.Println("unsupported windows PE machine type, got:")
-		fmt.Printf("0x84 - 0x%X, but 0x64/0x4C required\n", data[0x84])
-		fmt.Printf("0x85 - 0x%X, but 0x86/0x01 required\n", data[0x85])
+		fmt.Printf(`unsupported windows PE machine type, got:
+	0x84 - 0x%X, but 0x64/0x4C required
+	0x85 - 0x%X, but 0x86/0x01 required
+`, data[0x84], data[0x85])
 		os.Exit(1)
 	}
 
+	oldDLLu16, newDLLu16 := make([]byte, len(oldDLL)*2), make([]byte, len(newDLL)*2)
+
+	// shift DLL file names back to normal and
+	// make LE Unicode strings
 	for i := range oldDLL {
 		oldDLL[i] -= 1
+		oldDLLu16[i*2] = oldDLL[i]
 	}
 	for i := range newDLL {
 		newDLL[i] -= 1
+		newDLLu16[i*2] = newDLL[i]
 	}
 
 	newData := bytes.ReplaceAll(data, oldDLL, newDLL)
-	u16 := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder()
-	oldDLLu16, _ := u16.Bytes(oldDLL)
-	newDLLu16, _ := u16.Bytes(newDLL)
 	newData = bytes.ReplaceAll(newData, oldDLLu16[:len(oldDLLu16)-1], newDLLu16[:len(newDLLu16)-1])
 
 	if bytes.Equal(data, newData) {
@@ -83,7 +88,7 @@ func main() {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		fmt.Println("file patched")
+		fmt.Println("file", fName, "patched")
 	}
 
 	dllPath := filepath.Join(filepath.Dir(fName), string(newDLL))
