@@ -41,10 +41,18 @@ engines detects DLLs as malicious, but hope, that is false positive detection.
 
 # Compilation
 
+Best way to compile patcher without dependencies (pathing patcher itself) is to use [old toolchain](https://go.dev/dl/#go1.21.4) 
+(1.21.0 <= toolchain < 1.21.5) and build with it:
+
 ```bash
-GOOS=windows GOARCH=386 go build -trimpath -o gw7p-x32.exe .
-GOOS=windows GOARCH=amd64 go build -trimpath -o gw7p-x64.exe .
-# OPTIONAL: patch patchers itself
+GOOS=windows GOARCH=386 path/to/toolchain/bin/go build -trimpath -o gw7p-x32.exe .
+GOOS=windows GOARCH=amd64 path/to/toolchain/bin/go build -trimpath -o gw7p-x64.exe .
+```
+
+If patcher compiled with newer Go version, to run it under Win7/2008 it should be also patched (with manual dll placing).
+
+```bash
+# patch patchers itself
 go run main.go gw7p-x32.exe
 go run main.go gw7p-x64.exe
 ```
