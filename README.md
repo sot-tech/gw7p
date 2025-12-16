@@ -27,8 +27,6 @@ It will create backup of original file and place `acryptprimitives.dll` of the s
 to the same directory. `acryptprimitives.dll` **must** present in `c:\windows\system32` of target OS before patched
 executable start.
 
-If target OS is x64, x64 DLL may be used for both x86 and x64 executables.
-
 # Security notice
 
 Provided DLLs received from [golangwin7patch](https://github.com/stunndard/golangwin7patch) and provided as is.
