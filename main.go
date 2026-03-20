@@ -7,10 +7,12 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // values shifted to 1 ascii symbol forward to avoid incorrect patching self executable
@@ -19,13 +21,14 @@ var (
 	newDLL = []byte("bdszquqsjnjujwft/emm") // acryptprimitives.dll
 )
 
-//go:embed "acryptprimitives32.dll"
-var dllData32 []byte
-
-//go:embed "acryptprimitives64.dll"
-var dllData64 []byte
-
 func main() {
+	var systemDLL, forceDLL bool
+	if runtime.GOOS == "windows" {
+		flag.BoolVar(&systemDLL, "s", false,
+			"place DLL to system directory (system32 or sysWOW64 depending on executable and local kernel architecture).\nrequires administrator privileges.")
+	}
+	flag.BoolVar(&forceDLL, "f", false,
+		"force write DLL even if it already exists in target directory (system or executable)")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Println("input file not provided")
@@ -37,48 +40,25 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	if len(data) < 0x90 ||
-		data[0] != 0x4D || data[1] != 0x5A || // exe magic
-		data[0x80] != 0x50 || data[0x81] != 0x45 { // PE format
-		fmt.Printf(`file not seems to be windows executable, got:
-	0x80 - 0x%X, but 0x50 required
-	0x81 - 0x%X, but 0x45 required
-`, data[0x80], data[0x81])
+
+	exe64, dll, err := checkPE(data)
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
-	var dll []byte
-	if data[0x84] == 0x4c && data[0x85] == 0x01 { // x86
-		fmt.Println("x86 executable")
-		dll = dllData32
-	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
-		fmt.Println("x64 executable")
-		dll = dllData64
+
+	if exe64 {
+		fmt.Println("x64 executable detected")
 	} else {
-		fmt.Printf(`unsupported windows PE machine type, got:
-	0x84 - 0x%X, but 0x64/0x4C required
-	0x85 - 0x%X, but 0x86/0x01 required
-`, data[0x84], data[0x85])
-		os.Exit(1)
+		fmt.Println("x86 executable detected")
 	}
 
-	oldDLLu16, newDLLu16 := make([]byte, len(oldDLL)*2), make([]byte, len(newDLL)*2)
-
-	// shift DLL file names back to normal and
-	// make LE Unicode strings
-	for i := range oldDLL {
-		oldDLL[i] -= 1
-		oldDLLu16[i*2] = oldDLL[i]
-	}
-	for i := range newDLL {
-		newDLL[i] -= 1
-		newDLLu16[i*2] = newDLL[i]
-	}
-
+	oldDLLu16, newDLLu16 := prepareSubstitutions()
 	newData := bytes.ReplaceAll(data, oldDLL, newDLL)
 	newData = bytes.ReplaceAll(newData, oldDLLu16[:len(oldDLLu16)-1], newDLLu16[:len(newDLLu16)-1])
 
 	if bytes.Equal(data, newData) {
-		fmt.Println("file already patched")
+		fmt.Println("file", fName, "already patched")
 	} else {
 		if err = os.Rename(fName, fName+".bak"); err != nil {
 			fmt.Println(err)
@@ -91,11 +71,95 @@ func main() {
 		fmt.Println("file", fName, "patched")
 	}
 
-	dllPath := filepath.Join(filepath.Dir(fName), string(newDLL))
-	err = os.WriteFile(dllPath, dll, 0o600)
-	if err != nil {
+	if err, dllPath := writeDLL(dll, fName, exe64, systemDLL, forceDLL); err == nil {
+		fmt.Println("DLL written to", dllPath)
+	} else if errors.Is(err, errDLLExists) {
+		fmt.Println("DLL", dllPath, "already exists")
+	} else {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Println(`DLL placed to the same directory as provided file. don't forget to place it into C:\windows\system32 directory`)
+}
+
+//go:embed "acryptprimitives32.dll"
+var dllData32 []byte
+
+//go:embed "acryptprimitives64.dll"
+var dllData64 []byte
+
+func checkPE(data []byte) (is64 bool, dll []byte, err error) {
+	if len(data) < 0x90 ||
+		data[0] != 0x4D || data[1] != 0x5A || // exe magic
+		data[0x80] != 0x50 || data[0x81] != 0x45 { // PE format
+		err = fmt.Errorf(`file not seems to be windows executable, got:
+	0x80 - 0x%X, but 0x50 required
+	0x81 - 0x%X, but 0x45 required`, data[0x80], data[0x81])
+	}
+	if data[0x84] == 0x4c && data[0x85] == 0x01 { // x86
+		dll = dllData32
+	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
+		is64, dll = true, dllData64
+	} else {
+		err = fmt.Errorf(`unsupported windows PE machine type, got:
+	0x84 - 0x%X, but 0x64/0x4C required
+	0x85 - 0x%X, but 0x86/0x01 required`, data[0x84], data[0x85])
+	}
+	return is64, dll, err
+}
+
+func prepareSubstitutions() (oldDLLu16, newDLLu16 []byte) {
+	oldDLLu16, newDLLu16 = make([]byte, len(oldDLL)*2), make([]byte, len(newDLL)*2)
+	// shift DLL file names back to normal and
+	// make LE Unicode strings
+	for i := range oldDLL {
+		oldDLL[i] -= 1
+		oldDLLu16[i*2] = oldDLL[i]
+	}
+	for i := range newDLL {
+		newDLL[i] -= 1
+		newDLLu16[i*2] = newDLL[i]
+	}
+	return oldDLLu16, newDLLu16
+}
+
+var (
+	errDLLArchMissmatch = errors.New("unable to use x64 DLL in x86 kernel")
+	errDLLExists        = errors.New("target DLL already exists")
+)
+
+const (
+	system32Dir = `C:\Windows\System32`
+	sysWOW64Dir = `C:\Windows\SysWOW64`
+)
+
+func writeDLL(dllData []byte, fileName string, exe64, systemDLL, forceWriteDLL bool) (
+	err error, dllPath string,
+) {
+	if systemDLL {
+		sys64 := is64()
+		switch {
+		case exe64 == sys64:
+			dllPath = system32Dir
+		case exe64 && !sys64:
+			err = errDLLArchMissmatch
+		case !exe64 && sys64:
+			dllPath = sysWOW64Dir
+		}
+	} else {
+		dllPath = filepath.Dir(fileName)
+	}
+	dllPath = filepath.Join(dllPath, string(newDLL))
+	_, fErr := os.Stat(dllPath)
+	if fErr == nil {
+		if forceWriteDLL {
+			err = os.WriteFile(dllPath, dllData, 0o600)
+		} else {
+			err = errDLLExists
+		}
+	} else if os.IsNotExist(fErr) {
+		err = os.WriteFile(dllPath, dllData, 0o600)
+	} else {
+		err = fErr
+	}
+	return err, dllPath
 }
