@@ -25,17 +25,21 @@ gw7p-x86.exe desired_executable.exe
 
 It will create backup of original file and place `acryptprimitives.dll` of the same executable architecture (x86 or x64)
 to the same directory. `acryptprimitives.dll` **must** present in `c:\windows\system32` of target OS before patched
-executable start.
+executable start. 
 
-# Security notice
+If `-s` flag provided (windows only), patcher will attempt to place `acryptprimitives.dll` to system32 or syswow64 
+directory (requires administrator privileges).
 
-Provided DLLs received from [golangwin7patch](https://github.com/stunndard/golangwin7patch) and provided as is.
+> [!WARNING]
+> 
+> ### Security notice
+> Provided DLLs received from [golangwin7patch](https://github.com/stunndard/golangwin7patch) and provided as is.
 [We don't have sources](https://github.com/stunndard/golangwin7patch/issues/10) of these DLLs, you can ask golangwin7patch's author for them.
-
-And yes, DLLs must present in system directory, it's golang requirement.
-
-We know that two [VirusTotal](https://www.virustotal.com/gui/file/f6f83ac4022e8bf195b112268a2907efd1032da6e33e437af6d70caed8e89cc6) 
-engines detects DLLs as malicious, but hope, that is false positive detection.
+>
+> And yes, DLLs must present in system directory, it's golang requirement.
+>
+> We know that two [VirusTotal](https://www.virustotal.com/gui/file/f6f83ac4022e8bf195b112268a2907efd1032da6e33e437af6d70caed8e89cc6) 
+engines detect DLLs as malicious, but hope, that it's false positive detection.
 
 # Compilation
 
