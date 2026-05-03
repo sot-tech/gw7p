@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -88,21 +89,35 @@ var dllData32 []byte
 var dllData64 []byte
 
 func checkPE(data []byte) (is64 bool, dll []byte, err error) {
-	if len(data) < 0x90 ||
-		data[0] != 0x4D || data[1] != 0x5A || // exe magic
-		data[0x80] != 0x50 || data[0x81] != 0x45 { // PE format
-		err = fmt.Errorf(`file not seems to be windows executable, got:
-	0x80 - 0x%X, but 0x50 required
-	0x81 - 0x%X, but 0x45 required`, data[0x80], data[0x81])
+	if len(data) < 0x40 ||
+		data[0] != 0x4D || data[1] != 0x5A { // exe magic
+		return false, nil, fmt.Errorf(`file not seems to be windows executable, got:
+	0x00 - 0x%X, but 0x4D required
+	0x01 - 0x%X, but 0x5A required`, data[0], data[1])
 	}
-	if data[0x84] == 0x4c && data[0x85] == 0x01 { // x86
+
+	offset := binary.LittleEndian.Uint32(data[0x3c:])
+	if len(data) < int(offset)+4 {
+		return false, nil, fmt.Errorf(`file not seems to be windows executable, invalid PE pointer:
+	0x%X greater than file length (0x%X)`, offset+4, len(data))
+	}
+
+	if data[offset] != 0x50 || data[offset+1] != 0x45 { // PE format
+		return false, nil, fmt.Errorf(`file not seems to be windows executable, invalid PE header:
+	0x%X - 0x%X, but 0x50 required
+	0x%X - 0x%X, but 0x45 required`, offset, data[offset], offset+1, data[offset+1])
+	}
+
+	offset += 4
+
+	if data[offset] == 0x4c && data[offset+1] == 0x01 { // x86
 		dll = dllData32
-	} else if data[0x84] == 0x64 && data[0x85] == 0x86 { // x86-64
+	} else if data[offset] == 0x64 && data[offset+1] == 0x86 { // x86-64
 		is64, dll = true, dllData64
 	} else {
 		err = fmt.Errorf(`unsupported windows PE machine type, got:
-	0x84 - 0x%X, but 0x64/0x4C required
-	0x85 - 0x%X, but 0x86/0x01 required`, data[0x84], data[0x85])
+	0x%X - 0x%X, but 0x64/0x4C required
+	0x%X - 0x%X, but 0x86/0x01 required`, offset, data[offset], offset+1, data[offset+1])
 	}
 	return is64, dll, err
 }
