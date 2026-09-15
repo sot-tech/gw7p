@@ -57,7 +57,7 @@ func main() {
 	oldDLLu16, newDLLu16 := prepareSubstitutions()
 	newData := bytes.ReplaceAll(data, oldDLL, newDLL)
 	newData = bytes.ReplaceAll(newData, oldDLLu16[:len(oldDLLu16)-1], newDLLu16[:len(newDLLu16)-1])
-
+	setPEMinimumTarget(newData)
 	if bytes.Equal(data, newData) {
 		fmt.Println("file", fName, "already patched")
 	} else {
@@ -120,6 +120,24 @@ func checkPE(data []byte) (is64 bool, dll []byte, err error) {
 	0x%X - 0x%X, but 0x86/0x01 required`, offset, data[offset], offset+1, data[offset+1])
 	}
 	return is64, dll, err
+}
+
+func setPEMinimumTarget(data []byte) {
+	// Optional Header Windows-Specific MajorOperatingSystemVersion offset
+	offset := binary.LittleEndian.Uint32(data[0x3C:]) + 0x40
+	data = data[offset:]
+	majorOperatingSystemVersion := binary.LittleEndian.Uint16(data)
+	minorOperatingSystemVersion := binary.LittleEndian.Uint16(data[2:])
+	majorSubsystemVersion := binary.LittleEndian.Uint16(data[8:])
+	minorSubsystemVersion := binary.LittleEndian.Uint16(data[10:])
+	if majorOperatingSystemVersion > 6 || minorOperatingSystemVersion > 1 ||
+		majorSubsystemVersion > 6 || minorSubsystemVersion > 1 {
+		// setting minimum version to 6.1 (win7/2008r2)
+		binary.LittleEndian.PutUint16(data, 6)
+		binary.LittleEndian.PutUint16(data[2:], 1)
+		binary.LittleEndian.PutUint16(data[8:], 6)
+		binary.LittleEndian.PutUint16(data[10:], 1)
+	}
 }
 
 func prepareSubstitutions() (oldDLLu16, newDLLu16 []byte) {
